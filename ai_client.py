@@ -5,6 +5,8 @@ import re
 import httpx
 from openai import OpenAI
 
+from agent_logger import get_agent_logger
+
 
 def _get_client():
     base_url = os.getenv("OPENAI_BASE_URL") or None
@@ -48,6 +50,14 @@ def test_api_key():
 
 
 def generate_secret_item(category, category_description, difficulty="Medium"):
+    logger = get_agent_logger()
+    logger.log_step(
+        step_name="generate_secret_item_start",
+        agent_phase="PLAN",
+        details={"category": category, "difficulty": difficulty},
+        decision_rationale=f"Selecting a {difficulty}-difficulty item from {category}",
+    )
+
     client = _get_client()
     difficulty_desc = {
         "Easy": "very common, everyday items that almost anyone would know (e.g., dog, chair, apple)",
@@ -94,10 +104,26 @@ def generate_secret_item(category, category_description, difficulty="Medium"):
     if _is_official_openai():
         kwargs["response_format"] = {"type": "json_object"}
     response = client.chat.completions.create(**kwargs)
-    return _parse_json_response(response.choices[0].message.content)
+    result = _parse_json_response(response.choices[0].message.content)
+
+    logger.log_step(
+        step_name="generate_secret_item_complete",
+        agent_phase="PLAN",
+        details={"item": result.get("item"), "attribute_count": len(result.get("attributes", {}))},
+        decision_rationale=f"Selected '{result.get('item')}' with {len(result.get('attributes', {}))} pre-generated attributes",
+    )
+    return result
 
 
 def answer_question(question, qa_history, secret_item, secret_attributes):
+    logger = get_agent_logger()
+    logger.log_step(
+        step_name="answer_question_start",
+        agent_phase="ACT",
+        details={"question": question, "history_length": len(qa_history)},
+        decision_rationale=f"Processing question #{len(qa_history) + 1}",
+    )
+
     client = _get_client()
 
     history_text = ""
@@ -147,19 +173,52 @@ def answer_question(question, qa_history, secret_item, secret_attributes):
     if _is_official_openai():
         kwargs["response_format"] = {"type": "json_object"}
     response = client.chat.completions.create(**kwargs)
-    return _parse_json_response(response.choices[0].message.content)
+    result = _parse_json_response(response.choices[0].message.content)
+
+    logger.log_step(
+        step_name="consistency_self_check",
+        agent_phase="CHECK",
+        details={
+            "question": question,
+            "answer": result.get("answer"),
+            "consistency_note": result.get("consistency_check"),
+        },
+        decision_rationale=result.get("consistency_check", "No consistency note provided"),
+    )
+
+    logger.log_step(
+        step_name="answer_question_complete",
+        agent_phase="ACT",
+        details={"answer": result.get("answer"), "hint": result.get("hint")},
+        decision_rationale=f"Answered '{result.get('answer')}' based on attributes of {secret_item}",
+    )
+    return result
 
 
 def evaluate_guess(guess, secret_item):
+    logger = get_agent_logger()
     guess_lower = guess.strip().lower()
     secret_lower = secret_item.strip().lower()
 
     if guess_lower == secret_lower:
+        logger.log_step(
+            step_name="evaluate_guess_exact",
+            agent_phase="ACT",
+            details={"guess": guess, "exact_match": True},
+            decision_rationale="Exact string match (case-insensitive) — no API call needed",
+        )
         return {
             "correct": True,
             "close": False,
             "message": f"Yes! The answer was {secret_item}!",
         }
+
+    logger.log_step(
+        step_name="evaluate_guess_start",
+        agent_phase="ACT",
+        details={"guess": guess, "secret": secret_item},
+        decision_rationale="No exact match — delegating to AI for semantic comparison",
+    )
 
     client = _get_client()
     kwargs = {
@@ -190,10 +249,20 @@ def evaluate_guess(guess, secret_item):
     if _is_official_openai():
         kwargs["response_format"] = {"type": "json_object"}
     response = client.chat.completions.create(**kwargs)
-    return _parse_json_response(response.choices[0].message.content)
+    result = _parse_json_response(response.choices[0].message.content)
+
+    logger.log_step(
+        step_name="evaluate_guess_complete",
+        agent_phase="ACT",
+        details={"correct": result.get("correct"), "close": result.get("close")},
+        decision_rationale=f"Guess '{guess}' evaluated as correct={result.get('correct')}, close={result.get('close')}",
+    )
+    return result
 
 
 def rate_strategy(qa_history, secret_item, won, questions_used):
+    logger = get_agent_logger()
+
     client = _get_client()
 
     history_text = ""
@@ -235,10 +304,32 @@ def rate_strategy(qa_history, secret_item, won, questions_used):
     if _is_official_openai():
         kwargs["response_format"] = {"type": "json_object"}
     response = client.chat.completions.create(**kwargs)
-    return _parse_json_response(response.choices[0].message.content)
+    result = _parse_json_response(response.choices[0].message.content)
+
+    logger.log_step(
+        step_name="rate_strategy_complete",
+        agent_phase="REFLECT",
+        details={
+            "rating": result.get("rating"),
+            "won": won,
+            "questions_used": questions_used,
+            "strengths": result.get("strengths"),
+            "improvements": result.get("improvements"),
+        },
+        decision_rationale=f"Strategy rated {result.get('rating')}/10 — {result.get('summary', 'N/A')}",
+    )
+    return result
 
 
 def check_answer_consistency(qa_history, secret_item, secret_attributes):
+    logger = get_agent_logger()
+    logger.log_step(
+        step_name="consistency_check_start",
+        agent_phase="CHECK",
+        details={"qa_count": len(qa_history), "secret_item": secret_item},
+        decision_rationale=f"Running post-game consistency audit across {len(qa_history)} Q&A pairs",
+    )
+
     client = _get_client()
 
     history_text = ""
@@ -274,10 +365,29 @@ def check_answer_consistency(qa_history, secret_item, secret_attributes):
     if _is_official_openai():
         kwargs["response_format"] = {"type": "json_object"}
     response = client.chat.completions.create(**kwargs)
-    return _parse_json_response(response.choices[0].message.content)
+    result = _parse_json_response(response.choices[0].message.content)
+
+    logger.log_step(
+        step_name="consistency_check_complete",
+        agent_phase="CHECK",
+        details={
+            "consistent": result.get("consistent"),
+            "accuracy": result.get("accuracy"),
+            "contradiction_count": len(result.get("contradictions", [])),
+            "issue_count": len(result.get("issues", [])),
+        },
+        decision_rationale=(
+            f"Consistency={result.get('consistent')}, "
+            f"accuracy={result.get('accuracy')}%, "
+            f"{len(result.get('contradictions', []))} contradictions found"
+        ),
+    )
+    return result
 
 
 def get_proximity_feedback(question, qa_history, secret_item, secret_attributes):
+    logger = get_agent_logger()
+
     client = _get_client()
 
     history_text = ""
@@ -318,4 +428,15 @@ def get_proximity_feedback(question, qa_history, secret_item, secret_attributes)
     if _is_official_openai():
         kwargs["response_format"] = {"type": "json_object"}
     response = client.chat.completions.create(**kwargs)
-    return _parse_json_response(response.choices[0].message.content)
+    result = _parse_json_response(response.choices[0].message.content)
+
+    logger.log_step(
+        step_name="proximity_feedback",
+        agent_phase="ACT",
+        details={
+            "direction": result.get("direction"),
+            "proximity": result.get("proximity"),
+        },
+        decision_rationale=f"Player is {result.get('proximity', 'unknown')} — direction {result.get('direction', 'unknown')}",
+    )
+    return result

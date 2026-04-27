@@ -1,0 +1,71 @@
+graph TD
+    subgraph User Interface ["User Interface (Streamlit - app.py)"]
+        U1[Category Selector]
+        U2[Question Input]
+        U3[Guess Input]
+        U4[Strategy Report]
+        U5[Consistency Report]
+    end
+
+    subgraph Game Engine ["Game Engine (game_engine.py)"]
+        G1[GameState]
+        G2[Input Validators]
+        G3[Score Calculator]
+    end
+
+    subgraph AI Agent ["AI Agent Client (ai_client.py)"]
+        A1["Step 1: PLAN<br/>generate_secret_item()"]
+        A2["Step 2: ACT<br/>answer_question()"]
+        A3["Step 3: CHECK<br/>check_answer_consistency()"]
+        A4["Step 4: REFLECT<br/>rate_strategy()"]
+        A5["evaluate_guess()"]
+        A6["get_proximity_feedback()"]
+    end
+
+    subgraph Logging ["Agentic Step Logger (agent_logger.py)"]
+        L1[Step Trace Log]
+        L2[Decision Rationale]
+        L3[Consistency Notes]
+    end
+
+    subgraph Testing ["Testing & Evaluation"]
+        T1["Unit Tests<br/>(test_game_engine.py)<br/>26 tests"]
+        T2["AI Reliability Tests<br/>(test_ai_reliability.py)<br/>Integration tests"]
+        T3["Test Harness<br/>(run_test_harness.py)<br/>Automated eval script"]
+    end
+
+    subgraph External ["External Services"]
+        E1["OpenAI API<br/>(GPT-4o-mini)"]
+    end
+
+    U1 -->|Choose category| G1
+    U2 -->|Ask question| G2
+    U3 -->|Submit guess| G2
+
+    G1 -->|Setup request| A1
+    G2 -->|Validated input| A2
+    G2 -->|Validated guess| A5
+
+    A1 -->|Plan step logged| L1
+    A2 -->|Act step logged| L1
+    A2 -->|Consistency check| L2
+    A3 -->|Check step logged| L1
+    A3 -->|Contradictions| L3
+    A4 -->|Reflect step logged| L1
+
+    A1 -->|API call| E1
+    A2 -->|API call| E1
+    A4 -->|API call| E1
+    A5 -->|API call| E1
+    A6 -->|API call| E1
+
+    L1 -->|Display in UI| U4
+    L3 -->|Display in UI| U5
+
+    T1 -->|Validate| G1
+    T1 -->|Validate| G2
+    T1 -->|Validate| G3
+    T2 -->|Test accuracy| A2
+    T2 -->|Test consistency| A3
+    T3 -->|Run all| T1
+    T3 -->|Run all| T2

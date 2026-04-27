@@ -23,6 +23,7 @@ from ai_client import (
     get_proximity_feedback,
     test_api_key,
 )
+from agent_logger import get_agent_logger
 
 
 st.set_page_config(page_title="AI 20 Questions", page_icon="🤔", layout="wide")
@@ -37,6 +38,7 @@ if "game" not in st.session_state:
     st.session_state.game = GameState()
 
 game = st.session_state.game
+agent_logger = get_agent_logger()
 
 with st.sidebar:
     st.header("⚙️ Settings")
@@ -52,6 +54,11 @@ with st.sidebar:
         "🧭 Proximity Hints",
         value=False,
         help="After each question, the AI tells you if you're getting warmer or colder.",
+    )
+    show_agent_steps = st.checkbox(
+        "🤖 Show Agent Steps",
+        value=False,
+        help="Show the AI's internal reasoning steps (Plan → Act → Check → Reflect).",
     )
 
     if game.secret_item and game.status != "setup":
@@ -84,6 +91,7 @@ with st.sidebar:
 
     st.divider()
     if st.button("🔄 New Game", use_container_width=True):
+        agent_logger.clear()
         st.session_state.game = GameState()
         st.rerun()
 
@@ -104,6 +112,7 @@ if game.status == "setup":
     for i, (cat, desc) in enumerate(CATEGORIES.items()):
         with cols[i % 3]:
             if st.button(f"🏷️ {cat}", key=f"cat_{cat}", use_container_width=True):
+                agent_logger.clear()
                 with st.spinner("🤖 AI is thinking of something..."):
                     result = generate_secret_item(cat, desc, difficulty)
                     game.setup_game(
@@ -128,6 +137,24 @@ with col_score:
 if game.category in CATEGORY_HINTS:
     with st.expander("💡 Hint: Good questions to ask"):
         st.markdown(CATEGORY_HINTS[game.category])
+
+
+agent_steps = agent_logger.get_steps_for_display()
+if show_agent_steps and agent_steps:
+    with st.expander("🤖 Agent Workflow Steps", expanded=True):
+        for step in agent_steps:
+            phase_emoji = {
+                "1. Plan": "📋",
+                "2. Act": "⚡",
+                "3. Check": "🔍",
+                "4. Reflect": "💭",
+            }.get(step["phase"], "⚙️")
+            st.markdown(
+                f"**{phase_emoji} {step['phase']} — {step['step']}**  \n"
+                f"`{step['summary']}`"
+            )
+            if step.get("rationale"):
+                st.caption(f"💡 *{step['rationale']}*")
 
 
 if game.questions_asked:
