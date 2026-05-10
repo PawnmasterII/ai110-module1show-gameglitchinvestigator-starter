@@ -21,6 +21,7 @@ from ai_client import (
     rate_strategy,
     check_answer_consistency,
     get_proximity_feedback,
+    get_wikipedia_image_url,
     test_api_key,
 )
 from agent_logger import get_agent_logger
@@ -69,18 +70,11 @@ with st.sidebar:
             st.write(f"Guesses: {len(game.guesses)}")
             st.write(f"Difficulty: {difficulty}")
 
-    api_key = st.text_input(
-        "OpenAI API Key",
-        type="password",
-        value=os.getenv("OPENAI_API_KEY", ""),
-        help="Required to play. Your key is never stored.",
-    )
-    if api_key:
-        os.environ["OPENAI_API_KEY"] = api_key
+    api_key = os.getenv("OPENAI_API_KEY", "")
 
-    if st.button("🔑 Test API Key", use_container_width=True):
+    if st.button("Test API", use_container_width=True):
         if not api_key:
-            st.error("Enter an API key first.")
+            st.error("No API key configured in .env file.")
         else:
             with st.spinner("Testing..."):
                 try:
@@ -284,6 +278,13 @@ if game.status == "won":
     st.balloons()
     st.success(f"🎉 Congratulations! The answer was **{game.secret_item}**!")
     st.metric("Final Score", game.get_score())
+
+    with st.spinner("Fetching image..."):
+        image_url = get_wikipedia_image_url(game.secret_item)
+    if image_url:
+        st.image(image_url, caption=f"🖼️ {game.secret_item}", use_container_width=True)
+    else:
+        st.info("No image available, but great job!")
 
     if st.button("📊 Get Strategy Report", use_container_width=True):
         with st.spinner("🤖 Analyzing your strategy..."):

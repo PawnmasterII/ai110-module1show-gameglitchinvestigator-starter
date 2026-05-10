@@ -3,6 +3,7 @@ import os
 import re
 
 import httpx
+import requests
 from openai import OpenAI
 
 from agent_logger import get_agent_logger
@@ -383,6 +384,34 @@ def check_answer_consistency(qa_history, secret_item, secret_attributes):
         ),
     )
     return result
+
+
+def get_wikipedia_image_url(secret_item: str) -> str | None:
+    try:
+        response = requests.get(
+            "https://en.wikipedia.org/w/api.php",
+            params={
+                "action": "query",
+                "format": "json",
+                "prop": "pageimages",
+                "titles": secret_item,
+                "pithumbsize": 500,
+                "redirects": 1,
+            },
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+        pages = data.get("query", {}).get("pages", {})
+        if not pages:
+            return None
+        first_page = next(iter(pages.values()))
+        thumbnail = first_page.get("thumbnail")
+        if thumbnail and "source" in thumbnail:
+            return thumbnail["source"]
+        return None
+    except Exception:
+        return None
 
 
 def get_proximity_feedback(question, qa_history, secret_item, secret_attributes):
